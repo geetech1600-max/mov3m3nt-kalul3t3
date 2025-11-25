@@ -1,0 +1,17 @@
+{
+  "name": "mov3m3nt-kalul3t3",
+  "version": "1.0.0",
+  "description": "MOV3M3NT KALUL3T3 Music Platform",
+  "main": "index.html",
+  "scripts": {
+    "build": "echo 'No build process'",
+    "dev": "python3 -m http.server 3000",
+    "start": "python3 -m http.server 3000"
+  },
+  "keywords": ["music", "platform", "zambia", "hiphop"],
+  "author": "MOV3M3NT KALUL3T3",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

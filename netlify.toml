@@ -1,0 +1,143 @@
+[build]
+  publish = "."
+  command = "echo 'No build process needed for static site'"
+
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_VERSION = "9"
+
+# Global redirects
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# API proxy for Supabase (optional - for CORS)
+[[redirects]]
+  from = "/api/*"
+  to = "https://your-project.supabase.co/:splat"
+  status = 200
+  force = true
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Security headers
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    
+    # CORS headers
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Authorization, Content-Type, x-client-info, apikey"
+    
+    # Cache control for different file types
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    Content-Type = "text/css"
+
+[[headers]]
+  for = "*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+    Content-Type = "application/javascript"
+
+[[headers]]
+  for = "*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "*.mp3"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+    Content-Type = "audio/mpeg"
+
+[[headers]]
+  for = "*.mp4"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+    Content-Type = "video/mp4"
+
+[[headers]]
+  for = "*.jpg"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+    Content-Type = "image/jpeg"
+
+[[headers]]
+  for = "*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+    Content-Type = "image/png"
+
+# Environment variables (set in Netlify dashboard)
+[context.production.environment]
+  SUPABASE_URL = "https://your-project.supabase.co"
+  SUPABASE_ANON_KEY = "your-anon-key-here"
+
+[context.deploy-preview.environment]
+  SUPABASE_URL = "https://your-project.supabase.co"
+  SUPABASE_ANON_KEY = "your-anon-key-here"
+
+[context.branch-deploy.environment]
+  SUPABASE_URL = "https://your-project.supabase.co"
+  SUPABASE_ANON_KEY = "your-anon-key-here"
+
+# Functions (optional - for serverless functions)
+[functions]
+  directory = "netlify/functions"
+
+# Plugins
+[[plugins]]
+  package = "@netlify/plugin-sitemap"
+
+# Basic auth for staging (optional)
+[context.staging]
+  [context.staging.redirects]
+    force = true
+
+# Deploy settings
+[dev]
+  port = 3000
+  publish = "."
+  targetPort = 3000
+
+# Edge functions (optional)
+[[edge_functions]]
+  path = "/api/*"
+  function = "api-proxy"
+
+# Form settings (for contact forms)
+[forms]
+  honeypot_field = "bot-field"
+
+# Processing settings
+[processing]
+  [processing.css]
+    bundle = true
+    minify = true
+  [processing.js]
+    bundle = true
+    minify = true
+  [processing.html]
+    pretty_urls = true
+  [processing.images]
+    compress = true
+
+# Git LFS (if using large media files)
+[lfs]
+  enabled = true
