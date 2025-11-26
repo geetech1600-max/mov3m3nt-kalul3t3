@@ -1268,8 +1268,9 @@
         document.addEventListener('DOMContentLoaded', async () => {
             console.log('🚀 MOV3M3NT Platform Initializing...');
             
-            // Test Supabase connection first
+            // Test connections
             await testSupabaseConnection();
+            await testSupabaseAuth();
             
             // Load sample data immediately (fallback)
             loadSampleData();
@@ -1278,7 +1279,7 @@
             try {
                 await initializeApp();
             } catch (error) {
-                console.log('Database connection failed, using sample data');
+                console.log('Database connection failed, using sample data and demo auth');
             }
             
             setupEventListeners();
@@ -1302,18 +1303,51 @@
             }
         }
 
-        async function initializeApp() {
-            // Check for existing session
+        // TEST SUPABASE AUTH
+        async function testSupabaseAuth() {
             try {
+                console.log('Testing Supabase auth connection...');
+                const { data, error } = await supabase.auth.getSession();
+                if (error) {
+                    console.log('❌ Supabase auth not available:', error.message);
+                    return false;
+                }
+                console.log('✅ Supabase auth connected successfully!');
+                return true;
+            } catch (error) {
+                console.log('❌ Supabase auth error:', error.message);
+                return false;
+            }
+        }
+
+        async function initializeApp() {
+            // Check for existing session (both Supabase and demo)
+            try {
+                // First try Supabase
                 const { data: { session } } = await supabase.auth.getSession();
                 if (session) {
                     currentUser = session.user;
                     showAlert('Welcome back!', 'success');
+                } else {
+                    // Fallback to demo auth
+                    const demoUser = localStorage.getItem('mov3m3nt_current_user');
+                    if (demoUser) {
+                        currentUser = JSON.parse(demoUser);
+                        showAlert('Welcome back! (Demo mode)', 'success');
+                    }
                 }
                 updateAuthUI();
                 await loadContent();
             } catch (error) {
-                console.log('Auth initialization failed:', error);
+                console.log('Auth initialization failed, using demo mode:', error);
+                // Fallback to demo auth
+                const demoUser = localStorage.getItem('mov3m3nt_current_user');
+                if (demoUser) {
+                    currentUser = JSON.parse(demoUser);
+                    showAlert('Welcome back! (Demo mode)', 'success');
+                }
+                updateAuthUI();
+                loadContent();
             }
         }
 
@@ -1629,7 +1663,7 @@
             }, 5000);
         }
 
-        // FIXED PLAYER FUNCTIONS
+        // FIXED PLAYER FUNCTIONS - COMPLETELY REWRITTEN
         function playTrack(trackIndex) {
             if (!tracks[trackIndex]) {
                 showAlert('No track available to play', 'error');
@@ -1639,28 +1673,338 @@
             const track = tracks[trackIndex];
             currentTrackIndex = trackIndex;
 
-            mainAudioPlayer.src = track.audio_url;
-            mainAudioPlayer.play().catch(e => {
-                console.log('Audio play error:', e);
-                showAlert('Error playing audio', 'error');
-            });
-            
+            console.log('🎵 Playing track:', track.title, 'by', track.artist);
+
+            // Update player display IMMEDIATELY
             document.getElementById('player-title').textContent = track.title;
             document.getElementById('player-artist').textContent = track.artist;
             
+            // Update cover image
             if (track.cover_image) {
                 playerCoverImage.src = track.cover_image;
                 playerCoverImage.style.display = 'block';
                 playerCoverImage.nextElementSibling.style.display = 'none';
+            } else {
+                playerCoverImage.style.display = 'none';
+                playerCoverImage.nextElementSibling.style.display = 'flex';
             }
+            
+            // Set audio source
+            mainAudioPlayer.src = track.audio_url;
             
             // Update like button state
             updateLikeButton();
             
-            isPlaying = true;
-            playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-            player.classList.add('playing');
+            // Play the audio
+            mainAudioPlayer.play().then(() => {
+                isPlaying = true;
+                playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                player.classList.add('playing');
+                
+                // Start progress updates
+                if (progressInterval) clearInterval(progressInterval);
+                progressInterval = setInterval(updateProgress, 1000);
+                
+                console.log('✅ Now playing:', track.title, 'by', track.artist);
+            }).catch(e => {
+                console.log('❌ Audio play error:', e);
+                showAlert('Error playing audio - click play to retry', 'error');
+            });
         }
+
+        function togglePlayPause() {
+            if (isPlaying) {
+                // Pause
+                mainAudioPlayer.pause();
+                playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                player.classList.remove('playing');
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                }
+                isPlaying = false;
+            } else {
+                // Play
+                if (tracks.length === 0) {
+                    showAlert('No tracks available to play', 'error');
+                    return;
+                }
+                
+                // If no track is selected, play first track
+                if (!mainAudioPlayer.src || mainAudioPlayer.src === '') {
+                    playTrack(0);
+                } else {
+                    mainAudioPlayer.play().then(() => {
+                        playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                        player.classList.add('playing');
+                        if (!progressInterval) {
+                            progressInterval = setInterval(updateProgress, 1000);
+                        }
+                        isPlaying = true;
+                    }).catch(e => {
+                        showAlert("Error playing audio - click play to retry", 'error');
+                    });
+                }
+            }
+        }
+
+        function playPreviousTrack() {
+            if (tracks.length === 0) return;
+            currentTrackIndex = (currentTrackIndex - 1 + tracks.length) % tracks.length;
+            playTrack(currentTrackIndex);
+        }
+
+        function playNextTrack() {
+            if (tracks.length === 0) return;
+            currentTrackIndex = (currentTrackIndex + 1) % tracks.length;
+            playTrack(currentTrackIndex);
+        }
+
+        function updateProgress() {
+            if (!isPlaying || !mainAudioPlayer) return;
+            
+            const currentTime = mainAudioPlayer.currentTime;
+            const duration = mainAudioPlayer.duration || 0;
+            
+            if (duration && !isNaN(duration)) {
+                const progressPercent = (currentTime / duration) * 100;
+                progress.style.width = `${progressPercent}%`;
+                
+                currentTimeEl.textContent = formatTime(currentTime);
+                durationEl.textContent = formatTime(duration);
+            } else {
+                currentTimeEl.textContent = '0:00';
+                durationEl.textContent = '0:00';
+            }
+        }
+
+        function formatTime(seconds) {
+            if (!seconds || isNaN(seconds)) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+
+        function updateVolumeIcon() {
+            if (currentVolume === 0) {
+                volumeBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+            } else if (currentVolume < 0.5) {
+                volumeBtn.innerHTML = '<i class="fas fa-volume-down"></i>';
+            } else {
+                volumeBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+            }
+        }
+
+        // FIXED AUTHENTICATION FUNCTIONS
+        document.getElementById('doLogin').addEventListener('click', async () => {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            if (email && password) {
+                showLoading('doLogin', true);
+                
+                try {
+                    console.log('Attempting login for:', email);
+                    const { data, error } = await supabase.auth.signInWithPassword({
+                        email: email,
+                        password: password
+                    });
+                    
+                    if (error) {
+                        console.error('Login error:', error);
+                        showAlert(error.message, 'error');
+                    } else {
+                        console.log('Login successful:', data.user);
+                        currentUser = data.user;
+                        updateAuthUI();
+                        document.getElementById('loginModal').classList.remove('active');
+                        showAlert('Login successful!', 'success');
+                        
+                        // Clear form
+                        document.getElementById('loginEmail').value = '';
+                        document.getElementById('loginPassword').value = '';
+                    }
+                } catch (error) {
+                    console.error('Login exception:', error);
+                    // Fallback: Use localStorage for demo purposes
+                    if (error.message.includes('Failed to fetch')) {
+                        demoLogin(email, password);
+                    } else {
+                        showAlert('Login failed. Please try again.', 'error');
+                    }
+                } finally {
+                    showLoading('doLogin', false);
+                }
+            } else {
+                showAlert('Please enter email and password', 'error');
+            }
+        });
+
+        // FIXED REGISTRATION FUNCTION
+        document.getElementById('doRegister').addEventListener('click', async () => {
+            const username = document.getElementById('registerUsername').value;
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            
+            if (username && email && password) {
+                if (password.length < 6) {
+                    showAlert('Password must be at least 6 characters', 'error');
+                    return;
+                }
+                
+                showLoading('doRegister', true);
+                
+                try {
+                    console.log('Attempting registration for:', email);
+                    const { data, error } = await supabase.auth.signUp({
+                        email: email,
+                        password: password,
+                        options: {
+                            data: {
+                                username: username
+                            }
+                        }
+                    });
+                    
+                    if (error) {
+                        console.error('Registration error:', error);
+                        showAlert(error.message, 'error');
+                    } else {
+                        console.log('Registration successful:', data);
+                        showAlert('Registration successful! You can now login.', 'success');
+                        document.getElementById('registerModal').classList.remove('active');
+                        
+                        // Clear form
+                        document.getElementById('registerUsername').value = '';
+                        document.getElementById('registerEmail').value = '';
+                        document.getElementById('registerPassword').value = '';
+                        
+                        // Switch to login modal
+                        document.getElementById('loginModal').classList.add('active');
+                    }
+                } catch (error) {
+                    console.error('Registration exception:', error);
+                    // Fallback: Use localStorage for demo purposes
+                    if (error.message.includes('Failed to fetch')) {
+                        demoRegister(username, email, password);
+                    } else {
+                        showAlert('Registration failed. Please try again.', 'error');
+                    }
+                } finally {
+                    showLoading('doRegister', false);
+                }
+            } else {
+                showAlert('Please fill all fields', 'error');
+            }
+        });
+
+        // DEMO AUTHENTICATION FALLBACK (when Supabase is unavailable)
+        function demoLogin(email, password) {
+            console.log('Using demo authentication fallback');
+            
+            // Simple demo validation
+            const users = JSON.parse(localStorage.getItem('mov3m3nt_users') || '[]');
+            const user = users.find(u => u.email === email && u.password === password);
+            
+            if (user) {
+                currentUser = {
+                    id: user.id,
+                    email: user.email,
+                    user_metadata: { username: user.username }
+                };
+                
+                // Store session
+                localStorage.setItem('mov3m3nt_current_user', JSON.stringify(currentUser));
+                
+                updateAuthUI();
+                document.getElementById('loginModal').classList.remove('active');
+                showAlert('Demo login successful!', 'success');
+                
+                // Clear form
+                document.getElementById('loginEmail').value = '';
+                document.getElementById('loginPassword').value = '';
+            } else {
+                showAlert('Invalid email or password', 'error');
+            }
+        }
+
+        function demoRegister(username, email, password) {
+            console.log('Using demo registration fallback');
+            
+            const users = JSON.parse(localStorage.getItem('mov3m3nt_users') || '[]');
+            
+            // Check if user already exists
+            if (users.find(u => u.email === email)) {
+                showAlert('User already exists with this email', 'error');
+                return;
+            }
+            
+            // Create new user
+            const newUser = {
+                id: 'user_' + Date.now(),
+                username: username,
+                email: email,
+                password: password, // In real app, this would be hashed
+                created_at: new Date().toISOString()
+            };
+            
+            users.push(newUser);
+            localStorage.setItem('mov3m3nt_users', JSON.stringify(users));
+            
+            showAlert('Demo registration successful! You can now login.', 'success');
+            document.getElementById('registerModal').classList.remove('active');
+            
+            // Clear form
+            document.getElementById('registerUsername').value = '';
+            document.getElementById('registerEmail').value = '';
+            document.getElementById('registerPassword').value = '';
+            
+            // Switch to login modal
+            document.getElementById('loginModal').classList.add('active');
+        }
+
+        // UPDATED AUTH UI FUNCTION
+        function updateAuthUI() {
+            const userInfo = document.getElementById('userInfo');
+            const loginBtn = document.getElementById('loginBtn');
+            const userName = document.getElementById('userName');
+            const userAvatar = document.getElementById('userAvatar');
+            const mobileLoginBtn = document.getElementById('mobile-login-btn');
+
+            if (currentUser) {
+                userInfo.style.display = 'flex';
+                loginBtn.style.display = 'none';
+                mobileLoginBtn.style.display = 'none';
+                
+                // Handle both Supabase and demo users
+                const displayName = currentUser.user_metadata?.username || 
+                                   currentUser.email || 
+                                   'User';
+                userName.textContent = displayName;
+                userAvatar.textContent = displayName.charAt(0).toUpperCase();
+            } else {
+                userInfo.style.display = 'none';
+                loginBtn.style.display = 'block';
+                mobileLoginBtn.style.display = 'block';
+            }
+        }
+
+        // UPDATED LOGOUT FUNCTION
+        document.getElementById('logoutBtn').addEventListener('click', async () => {
+            try {
+                // Try Supabase logout
+                const { error } = await supabase.auth.signOut();
+                if (error) throw error;
+            } catch (error) {
+                console.log('Supabase logout failed, using demo logout');
+            } finally {
+                // Always clear demo session
+                localStorage.removeItem('mov3m3nt_current_user');
+                currentUser = null;
+                updateAuthUI();
+                showAlert('Logged out successfully', 'success');
+            }
+        });
 
         // FIXED EVENT LISTENERS
         function setupEventListeners() {
@@ -1683,8 +2027,10 @@
             // Play track buttons - FIXED
             document.addEventListener('click', (e) => {
                 if (e.target.closest('.play-btn')) {
-                    const trackIndex = parseInt(e.target.closest('.play-btn').dataset.trackIndex);
+                    const btn = e.target.closest('.play-btn');
+                    const trackIndex = parseInt(btn.dataset.trackIndex);
                     if (!isNaN(trackIndex)) {
+                        console.log('🎵 Playing track index:', trackIndex, 'Title:', tracks[trackIndex]?.title);
                         playTrack(trackIndex);
                     }
                 }
@@ -1769,102 +2115,6 @@
                 document.getElementById('registerModal').classList.remove('active');
             });
 
-            // REAL DATABASE AUTHENTICATION
-            document.getElementById('doLogin').addEventListener('click', async () => {
-                const email = document.getElementById('loginEmail').value;
-                const password = document.getElementById('loginPassword').value;
-                
-                if (email && password) {
-                    showLoading('doLogin', true);
-                    
-                    try {
-                        const { data, error } = await supabase.auth.signInWithPassword({
-                            email: email,
-                            password: password
-                        });
-                        
-                        if (error) {
-                            showAlert(error.message, 'error');
-                        } else {
-                            currentUser = data.user;
-                            updateAuthUI();
-                            document.getElementById('loginModal').classList.remove('active');
-                            showAlert('Login successful!', 'success');
-                            
-                            // Clear form
-                            document.getElementById('loginEmail').value = '';
-                            document.getElementById('loginPassword').value = '';
-                        }
-                    } catch (error) {
-                        showAlert('Login failed. Please try again.', 'error');
-                    } finally {
-                        showLoading('doLogin', false);
-                    }
-                } else {
-                    showAlert('Please enter email and password', 'error');
-                }
-            });
-
-            // REAL DATABASE REGISTRATION
-            document.getElementById('doRegister').addEventListener('click', async () => {
-                const username = document.getElementById('registerUsername').value;
-                const email = document.getElementById('registerEmail').value;
-                const password = document.getElementById('registerPassword').value;
-                
-                if (username && email && password) {
-                    if (password.length < 6) {
-                        showAlert('Password must be at least 6 characters', 'error');
-                        return;
-                    }
-                    
-                    showLoading('doRegister', true);
-                    
-                    try {
-                        const { data, error } = await supabase.auth.signUp({
-                            email: email,
-                            password: password,
-                            options: {
-                                data: {
-                                    username: username
-                                }
-                            }
-                        });
-                        
-                        if (error) {
-                            showAlert(error.message, 'error');
-                        } else {
-                            showAlert('Registration successful! Please check your email for verification.', 'success');
-                            document.getElementById('registerModal').classList.remove('active');
-                            
-                            // Clear form
-                            document.getElementById('registerUsername').value = '';
-                            document.getElementById('registerEmail').value = '';
-                            document.getElementById('registerPassword').value = '';
-                        }
-                    } catch (error) {
-                        showAlert('Registration failed. Please try again.', 'error');
-                    } finally {
-                        showLoading('doRegister', false);
-                    }
-                } else {
-                    showAlert('Please fill all fields', 'error');
-                }
-            });
-
-            // Logout
-            document.getElementById('logoutBtn').addEventListener('click', async () => {
-                try {
-                    const { error } = await supabase.auth.signOut();
-                    if (error) throw error;
-                    
-                    currentUser = null;
-                    updateAuthUI();
-                    showAlert('Logged out successfully', 'success');
-                } catch (error) {
-                    showAlert('Logout failed', 'error');
-                }
-            });
-
             // Comment form
             document.getElementById('commentForm').addEventListener('submit', function(e) {
                 e.preventDefault();
@@ -1895,79 +2145,6 @@
                     showAlert('Comment posted!', 'success');
                 }
             });
-        }
-
-        // FIXED PLAYER CONTROL FUNCTIONS
-        function togglePlayPause() {
-            if (isPlaying) {
-                mainAudioPlayer.pause();
-                playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                player.classList.remove('playing');
-                clearInterval(progressInterval);
-                isPlaying = false;
-            } else {
-                if (tracks.length === 0) {
-                    showAlert('No tracks available to play', 'error');
-                    return;
-                }
-                
-                // If no track is selected, play first track
-                if (!mainAudioPlayer.src) {
-                    playTrack(0);
-                } else {
-                    mainAudioPlayer.play().catch(e => {
-                        showAlert("Error playing audio", 'error');
-                    });
-                    playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
-                    player.classList.add('playing');
-                    progressInterval = setInterval(updateProgress, 1000);
-                    isPlaying = true;
-                }
-            }
-        }
-
-        function playPreviousTrack() {
-            if (tracks.length === 0) return;
-            currentTrackIndex = (currentTrackIndex - 1 + tracks.length) % tracks.length;
-            playTrack(currentTrackIndex);
-        }
-
-        function playNextTrack() {
-            if (tracks.length === 0) return;
-            currentTrackIndex = (currentTrackIndex + 1) % tracks.length;
-            playTrack(currentTrackIndex);
-        }
-
-        function updateProgress() {
-            if (!isPlaying) return;
-            
-            const currentTime = mainAudioPlayer.currentTime;
-            const duration = mainAudioPlayer.duration || 0;
-            
-            if (duration && !isNaN(duration)) {
-                const progressPercent = (currentTime / duration) * 100;
-                progress.style.width = `${progressPercent}%`;
-                
-                currentTimeEl.textContent = formatTime(currentTime);
-                durationEl.textContent = formatTime(duration);
-            }
-        }
-
-        function formatTime(seconds) {
-            if (!seconds || isNaN(seconds)) return '0:00';
-            const mins = Math.floor(seconds / 60);
-            const secs = Math.floor(seconds % 60);
-            return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-        }
-
-        function updateVolumeIcon() {
-            if (currentVolume === 0) {
-                volumeBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
-            } else if (currentVolume < 0.5) {
-                volumeBtn.innerHTML = '<i class="fas fa-volume-down"></i>';
-            } else {
-                volumeBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
-            }
         }
 
         // FIXED LIKE FUNCTION
@@ -2075,27 +2252,6 @@
                 videoLoading.classList.remove('active');
                 showAlert("Video format not supported in demo", 'info');
             };
-        }
-
-        // FIXED AUTH UI
-        function updateAuthUI() {
-            const userInfo = document.getElementById('userInfo');
-            const loginBtn = document.getElementById('loginBtn');
-            const userName = document.getElementById('userName');
-            const userAvatar = document.getElementById('userAvatar');
-            const mobileLoginBtn = document.getElementById('mobile-login-btn');
-
-            if (currentUser) {
-                userInfo.style.display = 'flex';
-                loginBtn.style.display = 'none';
-                mobileLoginBtn.style.display = 'none';
-                userName.textContent = currentUser.user_metadata?.username || currentUser.email;
-                userAvatar.textContent = (currentUser.user_metadata?.username || 'U').charAt(0).toUpperCase();
-            } else {
-                userInfo.style.display = 'none';
-                loginBtn.style.display = 'block';
-                mobileLoginBtn.style.display = 'block';
-            }
         }
 
         // Loading helper function
